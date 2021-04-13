@@ -15,32 +15,37 @@ import Data.Text
 import Data.Aeson
 import Data.Hashable
 import Data.Bifunctor
+import Data.ByteString.Char8 as Char8
 import qualified Data.HashMap.Strict as HM
 
 
-type APIKeys = HM.HashMap ShortenerService String
+type APIKeys = HM.HashMap ShortenerService Char8.ByteString
 
 
 data ShortenerService = ShrtLnkDev | Tly | TinyUID deriving (Eq, Generic)
 instance Hashable ShortenerService
 
 
+apiKeysConfig :: APIKeys
 apiKeysConfig = HM.fromList [(ShrtLnkDev, "API_KEY")]
 
 
 getUrl :: IO String
-getUrl = putStr "URL: " >> hFlush stdout >> getLine
+getUrl = System.IO.putStr "URL: " >> hFlush stdout >> System.IO.getLine
 
 
 
 shrtlnkDevRequest :: String -> ReaderT APIKeys Req (JsonResponse Object)
 shrtlnkDevRequest url = let payload = object [ "url" .= url ]
-                 in lift $ req
+                 in do
+                 config <- ask
+                 let api_key = HM.lookupDefault "" ShrtLnkDev config
+                 lift $ req
                     POST
                     (https "shrtlnk.dev" /: "api" /: "v2" /: "link")
                     (ReqBodyJson payload)
                     jsonResponse
-                    (header "api-key" "API_KEY")
+                    (header "api-key" api_key)
 
 
 shrtlnkDevResponseHandler :: HttpResponseBody (JsonResponse Object) -> Text
@@ -109,5 +114,5 @@ main = do
     url <- getUrl
     responses <- sequence $ runRequest apiKeysConfig <$> bimap id ($ url) <$> allRequests
     let contents = getShortUrl <$> responses
-    mapM_ putStrLn contents
+    mapM_ System.IO.putStrLn contents
 
