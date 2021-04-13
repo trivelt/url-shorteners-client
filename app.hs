@@ -58,10 +58,13 @@ tinyUIDResponseHandler r = case HM.lookup "result_url" r of
                             _ -> ""
 
 
+allRequests :: [Req (JsonResponse Object)]
+allRequests = [(shrtlnkDevRequest "http://polydev.pl"), (tlyRequest "http://polydev.pl"), (tinyUIDRequest "http://polydev.pl")]
+
+
 main :: IO ()
 main = do
-    response <- runReq defaultHttpConfig (tinyUIDRequest "https://polydev.pl")
-    let body = responseBody response
-    let url = tinyUIDResponseHandler body
-    print url
+    responses <- runReq defaultHttpConfig $ sequence allRequests
+    let contents = responseBody <$> responses
+    print contents
 
