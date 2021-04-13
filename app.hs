@@ -10,6 +10,8 @@ import Data.Text
 import Network.HTTP.Req
 
 
+data ShortenerService = ShrtLnkDev | Tly | TinyUID
+
 
 shrtlnkDevRequest :: String -> Req (JsonResponse Object)
 shrtlnkDevRequest url = let payload = object [ "url" .= url ]
@@ -59,23 +61,31 @@ tinyUIDResponseHandler r = case HM.lookup "result_url" r of
                             _ -> ""
 
 
-runRequest :: Req a -> IO (Either HttpException a)
-runRequest req = try (runReq defaultHttpConfig req)
+runRequest :: (ShortenerService, Req a) -> IO (ShortenerService, Either HttpException a)
+runRequest service_and_request = let req = snd service_and_request
+                                     in do
+                                 resp <- try (runReq defaultHttpConfig req)
+                                 return (fst service_and_request, resp)
 
 
-allRequests :: [Req (JsonResponse Object)]
-allRequests = [(shrtlnkDevRequest "http://polydev.pl"), (tlyRequest "http://polydev.pl"), (tinyUIDRequest "http://polydev.pl")]
+allRequests :: [(ShortenerService, Req (JsonResponse Object))]
+allRequests = [(ShrtLnkDev, shrtlnkDevRequest "http://polydev.pl"), (Tly, tlyRequest "http://polydev.pl"), (TinyUID, tinyUIDRequest "http://polydev.pl")]
 
 
-getContent :: Either HttpException (JsonResponse Object) -> String
-getContent response = case response of
-    Right x     -> show $ responseBody x
+getShortUrl :: (ShortenerService, Either HttpException (JsonResponse Object)) -> String
+getShortUrl response = case snd response of
+    Right x     -> show $ handler $ responseBody x
     Left y      -> "Exception catched: " ++ show y
+  where
+    handler = case fst response of
+          ShrtLnkDev -> shrtlnkDevResponseHandler
+          Tly -> tlyResponseHandler
+          TinyUID -> tinyUIDResponseHandler
 
 
 main :: IO ()
 main = do
     responses <- sequence $ runRequest <$> allRequests
-    let contents = getContent <$> responses
+    let contents = getShortUrl <$> responses
     mapM_ putStrLn contents
 
