@@ -7,11 +7,11 @@ import Data.Aeson
 import Network.HTTP.Req
 
 
-createRequest :: Req (JsonResponse Object)
-createRequest = let payload = object [ "foo" .= (10 :: Int), "bar" .= (20 :: Int)]
+tinyUIDRequest :: String -> Req (JsonResponse Object)
+tinyUIDRequest url = let payload = object [ "url" .= url ]
                 in req
                    POST
-                   (https "httpbin.org" /: "post")
+                   (https "tinyuid.com" /: "api" /: "v1" /: "shorten")
                    (ReqBodyJson payload)
                    jsonResponse
                    mempty
@@ -19,6 +19,6 @@ createRequest = let payload = object [ "foo" .= (10 :: Int), "bar" .= (20 :: Int
 
 main :: IO ()
 main = do
-  response <- runReq defaultHttpConfig createRequest
+  response <- runReq defaultHttpConfig (tinyUIDRequest "https://polydev.pl")
   print $ responseBody response
 
