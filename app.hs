@@ -2,15 +2,24 @@
 
 module Main (main) where
 
-import qualified Data.HashMap.Strict as HM
+import Network.HTTP.Req
+import System.IO
+
 import Control.Monad.IO.Class
 import Control.Exception
-import Data.Aeson
+
 import Data.Text
-import Network.HTTP.Req
+import Data.Aeson
+import Data.Bifunctor
+import qualified Data.HashMap.Strict as HM
 
 
 data ShortenerService = ShrtLnkDev | Tly | TinyUID
+
+
+getUrl :: IO String
+getUrl = putStr "URL: " >> hFlush stdout >> getLine
+
 
 
 shrtlnkDevRequest :: String -> Req (JsonResponse Object)
@@ -68,8 +77,8 @@ runRequest service_and_request = let req = snd service_and_request
                                  return (fst service_and_request, resp)
 
 
-allRequests :: [(ShortenerService, Req (JsonResponse Object))]
-allRequests = [(ShrtLnkDev, shrtlnkDevRequest "http://polydev.pl"), (Tly, tlyRequest "http://polydev.pl"), (TinyUID, tinyUIDRequest "http://polydev.pl")]
+allRequests :: [(ShortenerService, String -> Req (JsonResponse Object))]
+allRequests = [(ShrtLnkDev, shrtlnkDevRequest), (Tly, tlyRequest), (TinyUID, tinyUIDRequest)]
 
 
 getShortUrl :: (ShortenerService, Either HttpException (JsonResponse Object)) -> String
@@ -85,7 +94,8 @@ getShortUrl response = case snd response of
 
 main :: IO ()
 main = do
-    responses <- sequence $ runRequest <$> allRequests
+    url <- getUrl
+    responses <- sequence $ runRequest <$> bimap id ($ url) <$> allRequests
     let contents = getShortUrl <$> responses
     mapM_ putStrLn contents
 
