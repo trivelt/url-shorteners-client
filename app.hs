@@ -1,20 +1,31 @@
+{-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
 
 module Main (main) where
 
-import Network.HTTP.Req
 import System.IO
+import Network.HTTP.Req
+import GHC.Generics (Generic)
 
-import Control.Monad.IO.Class
 import Control.Exception
+import Control.Monad.Reader
+import Control.Monad.IO.Class
 
 import Data.Text
 import Data.Aeson
+import Data.Hashable
 import Data.Bifunctor
 import qualified Data.HashMap.Strict as HM
 
 
-data ShortenerService = ShrtLnkDev | Tly | TinyUID
+type APIKeys = HM.HashMap ShortenerService String
+
+
+data ShortenerService = ShrtLnkDev | Tly | TinyUID deriving (Eq, Generic)
+instance Hashable ShortenerService
+
+
+apiKeysConfig = HM.fromList [(ShrtLnkDev, "API_KEY")]
 
 
 getUrl :: IO String
@@ -22,9 +33,9 @@ getUrl = putStr "URL: " >> hFlush stdout >> getLine
 
 
 
-shrtlnkDevRequest :: String -> Req (JsonResponse Object)
+shrtlnkDevRequest :: String -> ReaderT APIKeys Req (JsonResponse Object)
 shrtlnkDevRequest url = let payload = object [ "url" .= url ]
-                 in req
+                 in lift $ req
                     POST
                     (https "shrtlnk.dev" /: "api" /: "v2" /: "link")
                     (ReqBodyJson payload)
@@ -38,9 +49,9 @@ shrtlnkDevResponseHandler r = case HM.lookup "shrtlnk" r of
                             _ -> ""
 
 
-tlyRequest :: String -> Req (JsonResponse Object)
+tlyRequest :: String -> ReaderT APIKeys Req (JsonResponse Object)
 tlyRequest url = let payload = object [ "long_url" .= url ]
-                 in req
+                 in lift $ req
                     POST
                     (https "t.ly" /: "api" /: "v1" /: "link" /: "shorten")
                     (ReqBodyJson payload)
@@ -54,9 +65,9 @@ tlyResponseHandler r = case HM.lookup "short_url" r of
                             _ -> ""
 
 
-tinyUIDRequest :: String -> Req (JsonResponse Object)
+tinyUIDRequest :: String -> ReaderT APIKeys Req (JsonResponse Object)
 tinyUIDRequest url = let payload = object [ "url" .= url ]
-                in req
+                in lift $ req
                    POST
                    (https "tinyuid.com" /: "api" /: "v1" /: "shorten")
                    (ReqBodyJson payload)
@@ -70,14 +81,15 @@ tinyUIDResponseHandler r = case HM.lookup "result_url" r of
                             _ -> ""
 
 
-runRequest :: (ShortenerService, Req a) -> IO (ShortenerService, Either HttpException a)
-runRequest service_and_request = let req = snd service_and_request
-                                     in do
-                                 resp <- try (runReq defaultHttpConfig req)
-                                 return (fst service_and_request, resp)
+runRequest :: APIKeys -> (ShortenerService, ReaderT APIKeys Req b) -> IO (ShortenerService, Either HttpException b)
+runRequest env service_and_request = let req = snd service_and_request
+                in do
+                    let req_with_env = runReaderT req env
+                    resp <- try (runReq defaultHttpConfig req_with_env)
+                    return (fst service_and_request, resp)
 
 
-allRequests :: [(ShortenerService, String -> Req (JsonResponse Object))]
+allRequests :: [(ShortenerService, String -> ReaderT APIKeys Req (JsonResponse Object))]
 allRequests = [(ShrtLnkDev, shrtlnkDevRequest), (Tly, tlyRequest), (TinyUID, tinyUIDRequest)]
 
 
@@ -95,7 +107,7 @@ getShortUrl response = case snd response of
 main :: IO ()
 main = do
     url <- getUrl
-    responses <- sequence $ runRequest <$> bimap id ($ url) <$> allRequests
+    responses <- sequence $ runRequest apiKeysConfig <$> bimap id ($ url) <$> allRequests
     let contents = getShortUrl <$> responses
     mapM_ putStrLn contents
 
