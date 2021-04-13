@@ -4,6 +4,7 @@ module Main (main) where
 
 import qualified Data.HashMap.Strict as HM
 import Control.Monad.IO.Class
+import Control.Exception
 import Data.Aeson
 import Data.Text
 import Network.HTTP.Req
@@ -58,13 +59,23 @@ tinyUIDResponseHandler r = case HM.lookup "result_url" r of
                             _ -> ""
 
 
+runRequest :: Req a -> IO (Either HttpException a)
+runRequest req = try (runReq defaultHttpConfig req)
+
+
 allRequests :: [Req (JsonResponse Object)]
 allRequests = [(shrtlnkDevRequest "http://polydev.pl"), (tlyRequest "http://polydev.pl"), (tinyUIDRequest "http://polydev.pl")]
 
 
+getContent :: Either HttpException (JsonResponse Object) -> String
+getContent response = case response of
+    Right x     -> show $ responseBody x
+    Left y      -> "Exception catched: " ++ show y
+
+
 main :: IO ()
 main = do
-    responses <- runReq defaultHttpConfig $ sequence allRequests
-    let contents = responseBody <$> responses
-    print contents
+    responses <- sequence $ runRequest <$> allRequests
+    let contents = getContent <$> responses
+    mapM_ putStrLn contents
 
