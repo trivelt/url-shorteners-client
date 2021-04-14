@@ -6,32 +6,25 @@ module Main (main) where
 
 import System.IO
 import Network.HTTP.Req
-import GHC.Generics (Generic)
-
 import Control.Exception
-import Control.Monad.Reader
-import Control.Monad.IO.Class
+import GHC.Generics (Generic)
 
 import Data.Text
 import Data.Aeson
-import Data.Hashable
-import Data.Bifunctor
-import Data.ByteString.Char8 as Char8
+import Data.Text.Encoding
 import qualified Data.ByteString.Lazy as B
 import qualified Data.HashMap.Strict as HM
-import Network.HTTP.Types.URI
-import Data.Text.Encoding
 
+data ShortenerServiceApiConfig =
+  ShortenerServiceApiConfig { name          :: Text
+                            , apiUrl        :: Text
+                            , shortUrlLabel :: Text
+                            , longUrlLabel  :: Text
+                            , apiKey        :: Maybe Text
+                            } deriving (Show, Generic)
 
-type APIKeys = HM.HashMap ShortenerService Char8.ByteString
-
-
-data ShortenerService = ShrtLnkDev | Tly | TinyUID deriving (Eq, Generic)
-instance Hashable ShortenerService
-
-
-apiKeysConfig :: APIKeys
-apiKeysConfig = HM.fromList [(ShrtLnkDev, "API_KEY")]
+instance FromJSON ShortenerServiceApiConfig
+instance ToJSON ShortenerServiceApiConfig
 
 
 getUrl :: IO String
@@ -52,16 +45,6 @@ jsonFile = "shorteners.json"
 getJSON :: IO B.ByteString
 getJSON = B.readFile jsonFile
 
-data ShortenerServiceApiConfig =
-  ShortenerServiceApiConfig { name          :: Text
-                            , apiUrl        :: Text
-                            , shortUrlLabel :: Text
-                            , longUrlLabel  :: Text
-                            , apiKey        :: Maybe Text
-                            } deriving (Show, Generic)
-
-instance FromJSON ShortenerServiceApiConfig
-instance ToJSON ShortenerServiceApiConfig
 
 loadApiConfig :: IO [ShortenerServiceApiConfig]
 loadApiConfig = do
