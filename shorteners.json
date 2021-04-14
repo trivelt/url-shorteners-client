@@ -1,0 +1,21 @@
+[
+  {
+    "name": "shrtlnk.dev",
+    "apiUrl": "shrtlnk.dev/api/v2/link",
+    "shortUrlLabel": "shrtlnk",
+    "longUrlLabel": "url",
+    "apiKey": "API_KEY"
+  },
+  {
+    "name": "t.ly",
+    "apiUrl": "t.ly/api/v1/link/shorten",
+    "shortUrlLabel": "short_url",
+    "longUrlLabel": "long_url"
+  },
+  {
+    "name": "tinyuid.com",
+    "apiUrl": "tinyuid.com/api/v1/shorten",
+    "shortUrlLabel": "result_url",
+    "longUrlLabel": "url"
+  }
+]

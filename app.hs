@@ -1,5 +1,6 @@
 {-# LANGUAGE DeriveGeneric #-}
 {-# LANGUAGE OverloadedStrings #-}
+{-# LANGUAGE DataKinds #-}
 
 module Main (main) where
 
@@ -16,7 +17,10 @@ import Data.Aeson
 import Data.Hashable
 import Data.Bifunctor
 import Data.ByteString.Char8 as Char8
+import qualified Data.ByteString.Lazy as B
 import qualified Data.HashMap.Strict as HM
+import Network.HTTP.Types.URI
+import Data.Text.Encoding
 
 
 type APIKeys = HM.HashMap ShortenerService Char8.ByteString
@@ -34,85 +38,76 @@ getUrl :: IO String
 getUrl = System.IO.putStr "URL: " >> hFlush stdout >> System.IO.getLine
 
 
-
-shrtlnkDevRequest :: String -> ReaderT APIKeys Req (JsonResponse Object)
-shrtlnkDevRequest url = let payload = object [ "url" .= url ]
-                 in do
-                 config <- ask
-                 let api_key = HM.lookupDefault "" ShrtLnkDev config
-                 lift $ req
-                    POST
-                    (https "shrtlnk.dev" /: "api" /: "v2" /: "link")
-                    (ReqBodyJson payload)
-                    jsonResponse
-                    (header "api-key" api_key)
+parseUrl :: Text -> Url 'Https
+parseUrl url = Prelude.foldl (\a b -> a /: b) host otherParts
+  where
+    parts = splitOn "/" url
+    host = https $ Prelude.head parts
+    otherParts = Prelude.drop 1 parts
 
 
-shrtlnkDevResponseHandler :: HttpResponseBody (JsonResponse Object) -> Text
-shrtlnkDevResponseHandler r = case HM.lookup "shrtlnk" r of
-                            Just (String url) -> url
-                            _ -> ""
+jsonFile :: FilePath
+jsonFile = "shorteners.json"
+
+getJSON :: IO B.ByteString
+getJSON = B.readFile jsonFile
+
+data ShortenerServiceApiConfig =
+  ShortenerServiceApiConfig { name          :: Text
+                            , apiUrl        :: Text
+                            , shortUrlLabel :: Text
+                            , longUrlLabel  :: Text
+                            , apiKey        :: Maybe Text
+                            } deriving (Show, Generic)
+
+instance FromJSON ShortenerServiceApiConfig
+instance ToJSON ShortenerServiceApiConfig
+
+loadApiConfig :: IO [ShortenerServiceApiConfig]
+loadApiConfig = do
+    config <- (eitherDecode <$> getJSON) :: IO (Either String [ShortenerServiceApiConfig])
+    case config of
+        Left _ -> return []
+        Right x -> return x
 
 
-tlyRequest :: String -> ReaderT APIKeys Req (JsonResponse Object)
-tlyRequest url = let payload = object [ "long_url" .= url ]
-                 in lift $ req
-                    POST
-                    (https "t.ly" /: "api" /: "v1" /: "link" /: "shorten")
-                    (ReqBodyJson payload)
-                    jsonResponse
-                    mempty
+createRequest :: String -> ShortenerServiceApiConfig -> Req (JsonResponse Object)
+createRequest url config = req
+        POST
+        (parseUrl $ apiUrl config)
+        (ReqBodyJson payload)
+        jsonResponse
+        headerObject
+    where
+        payload = object [ longUrlLabel config .= url ]
+        headerObject = case apiKey config of
+            Just key -> header "api-key" (encodeUtf8 key)
+            Nothing  -> mempty
 
 
-tlyResponseHandler :: HttpResponseBody (JsonResponse Object) -> Text
-tlyResponseHandler r = case HM.lookup "short_url" r of
-                            Just (String url) -> url
-                            _ -> ""
+runRequest :: (ShortenerServiceApiConfig, Req a) -> IO (ShortenerServiceApiConfig, Either HttpException a)
+runRequest config_and_request = let req = snd config_and_request
+    in do
+        resp <- try (runReq defaultHttpConfig req)
+        return (fst config_and_request, resp)
 
 
-tinyUIDRequest :: String -> ReaderT APIKeys Req (JsonResponse Object)
-tinyUIDRequest url = let payload = object [ "url" .= url ]
-                in lift $ req
-                   POST
-                   (https "tinyuid.com" /: "api" /: "v1" /: "shorten")
-                   (ReqBodyJson payload)
-                   jsonResponse
-                   mempty
-
-
-tinyUIDResponseHandler :: HttpResponseBody (JsonResponse Object) -> Text
-tinyUIDResponseHandler r = case HM.lookup "result_url" r of
-                            Just (String url) -> url
-                            _ -> ""
-
-
-runRequest :: APIKeys -> (ShortenerService, ReaderT APIKeys Req b) -> IO (ShortenerService, Either HttpException b)
-runRequest env service_and_request = let req = snd service_and_request
-                in do
-                    let req_with_env = runReaderT req env
-                    resp <- try (runReq defaultHttpConfig req_with_env)
-                    return (fst service_and_request, resp)
-
-
-allRequests :: [(ShortenerService, String -> ReaderT APIKeys Req (JsonResponse Object))]
-allRequests = [(ShrtLnkDev, shrtlnkDevRequest), (Tly, tlyRequest), (TinyUID, tinyUIDRequest)]
-
-
-getShortUrl :: (ShortenerService, Either HttpException (JsonResponse Object)) -> String
-getShortUrl response = case snd response of
+getShortUrl :: (ShortenerServiceApiConfig, Either HttpException (JsonResponse Object)) -> String
+getShortUrl (config, response) = case response of
     Right x     -> show $ handler $ responseBody x
     Left y      -> "Exception catched: " ++ show y
   where
-    handler = case fst response of
-          ShrtLnkDev -> shrtlnkDevResponseHandler
-          Tly -> tlyResponseHandler
-          TinyUID -> tinyUIDResponseHandler
+    handler x = case HM.lookup (shortUrlLabel config) x of
+        Just (String url) -> url
+        Nothing -> ""
 
 
 main :: IO ()
 main = do
     url <- getUrl
-    responses <- sequence $ runRequest apiKeysConfig <$> bimap id ($ url) <$> allRequests
+    apiConfigs <- loadApiConfig
+    let requests = (\config -> (config, (createRequest url config))) <$> apiConfigs
+    responses <- sequence $ runRequest <$> requests
     let contents = getShortUrl <$> responses
     mapM_ System.IO.putStrLn contents
 
