@@ -46,8 +46,8 @@ getJSON :: IO B.ByteString
 getJSON = B.readFile jsonFile
 
 
-loadApiConfig :: IO [ShortenerServiceApiConfig]
-loadApiConfig = do
+loadApiConfigs :: IO [ShortenerServiceApiConfig]
+loadApiConfigs = do
     config <- (eitherDecode <$> getJSON) :: IO (Either String [ShortenerServiceApiConfig])
     case config of
         Left _ -> return []
@@ -69,10 +69,9 @@ createRequest url config = req
 
 
 runRequest :: (ShortenerServiceApiConfig, Req a) -> IO (ShortenerServiceApiConfig, Either HttpException a)
-runRequest config_and_request = let req = snd config_and_request
-    in do
-        resp <- try (runReq defaultHttpConfig req)
-        return (fst config_and_request, resp)
+runRequest (config, request) =  do
+        resp <- try (runReq defaultHttpConfig request)
+        return (config, resp)
 
 
 getShortUrl :: (ShortenerServiceApiConfig, Either HttpException (JsonResponse Object)) -> String
@@ -88,7 +87,7 @@ getShortUrl (config, response) = case response of
 main :: IO ()
 main = do
     url <- getUrl
-    apiConfigs <- loadApiConfig
+    apiConfigs <- loadApiConfigs
     let requests = (\config -> (config, (createRequest url config))) <$> apiConfigs
     responses <- sequence $ runRequest <$> requests
     let contents = getShortUrl <$> responses
