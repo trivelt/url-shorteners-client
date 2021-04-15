@@ -2,7 +2,7 @@
 {-# LANGUAGE OverloadedStrings #-}
 {-# LANGUAGE DataKinds #-}
 
-module Main (main) where
+module App where
 
 import System.IO
 import Network.HTTP.Req
