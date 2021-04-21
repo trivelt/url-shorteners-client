@@ -68,14 +68,14 @@ createRequest url config = req
             Nothing  -> mempty
 
 
-runRequest :: (ShortenerServiceApiConfig, Req a) -> IO (ShortenerServiceApiConfig, Either HttpException a)
-runRequest (config, request) =  do
+runRequest :: Req a -> IO (Either HttpException a)
+runRequest request =  do
         resp <- try (runReq defaultHttpConfig request)
-        return (config, resp)
+        return resp
 
 
-getShortUrl :: (ShortenerServiceApiConfig, Either HttpException (JsonResponse Object)) -> String
-getShortUrl (config, response) = case response of
+getShortUrl :: ShortenerServiceApiConfig -> Either HttpException (JsonResponse Object) -> String
+getShortUrl config response = case response of
     Right x     -> show $ handler $ responseBody x
     Left y      -> "Exception catched: " ++ show y
   where
@@ -84,12 +84,18 @@ getShortUrl (config, response) = case response of
         Nothing -> ""
 
 
+shortenUrl :: String -> ShortenerServiceApiConfig -> IO String
+shortenUrl url config = do
+    let request = createRequest url config
+    response <- runRequest request
+    return $ getShortUrl config response
+
+
+
 main :: IO ()
 main = do
     url <- getUrl
     apiConfigs <- loadApiConfigs
-    let requests = (\config -> (config, (createRequest url config))) <$> apiConfigs
-    responses <- sequence $ runRequest <$> requests
-    let contents = getShortUrl <$> responses
+    contents <- sequence $ (shortenUrl url) <$> apiConfigs
     mapM_ System.IO.putStrLn contents
 
